@@ -1,164 +1,97 @@
-# Welcome to Arrow Project
+# Custom Error Pages for Arrow Web
 
-> You should replace the contents of this file with something meaningful.  This is a placeholder file to help you get started.  Got it?
+[Arrow Web](http://docs.appcelerator.com/platform/latest/#!/guide/Arrow_Web) is part of the Arrow family and the successor of [Node.ACS](http://docs.appcelerator.com/platform/latest/#!/guide/Migrating_Node.ACS_Applications_to_Arrow). It allows you to add additional public routes to an [Arrow Builder Application](http://docs.appcelerator.com/platform/latest/#!/guide/Arrow_Builder) to serve as front-ends to pretty much anything from a custom CMS to manage ArrowDB data or websites consuming Arrow APIs like we've done for the [University](http://university.appcelerator.com/), [Developer Portal](http://developer.appcelerator.com/) and many other of our properties.
 
-## Overview
+Arrow uses the popular [Express](http://expressjs.com/en/4x/api.html).
 
-This is a skeleton API Builder API project.  The project is organized into several different directories and key files.  This project is built to run either as a standalone Node server during development and also it is configured to run on the Appcelerator Cloud Services (ACS) platform.
+## Default Error Pages
 
-## Get Started
+By default, your Arrow Web routes will use the 404 template of the Arrow Admin:
 
-First, you should make sure you're environment is setup and ready to go.  To get started, let's make sure you can run the project, view the documentation and test the sample generated API.
+![Default 404](docs/default-404.png)
 
-```bash
-$ appc run
+And if your route throws or calls `next()` with an Error your users will see:
+
+![Default Error](docs/default-error.png)
+
+## Disable Default 404
+
+Since Arrow 1.7.10 (part of Appcelerator CLI 5.0.2) you can disable the default 404 page in by setting `admin.disableDefault404:false` in one of your [configuration files](conf/default.js#L62).
+
+With this disabled your 404's will now look like:
+
+![Disabled 404](docs/disabled-404.png)
+
+Different? Yes. What you want? Probably not. So let's customise that..
+
+## Add our Middleware
+
+In our [app.js](app.js#L14) we require add two middleware, after Arrow has `started` and initialised all routes. To keep our code clean we export these middleware from a new [lib/middleware.js](lib/middleware.js).
+
+## Custom 404 Middleware
+
+In our [pageNotFound](lib/middleware.js#L6) middleware we check for `res.bodyFlushed`. In Arrow we don't send the response to the client right away so that you can use [Arrow Blocks](http://docs.appcelerator.com/platform/latest/#!/guide/Arrow_Blocks) to modify the response. For Arrow Web routes calling `res.render()` will send the response. In both cases this flag will be set once a response has been sent. Since our `pageNotFound` is the second last middleware we can assume no route matched the request if this property has not been set yet. **tl;dr** it's a four-o-four.
+
+Instead of rendering a 404 template here, we call `next()` which accepts an error (of any type) as its argument. Which brings us to..
+
+## Custom Error Middleware
+
+Whenever routing or middleware functions call `next()` with an error, all remaining middleware will be skipped until it finds middleware that accepts four instead of three arguments, so-called [error-handling middleware functions](http://expressjs.com/en/guide/error-handling.html).
+
+Like our [errorHandler](lib/middleware.js#L22) middleware.
+
+You can pretty much do whatever you want in custom error handler or handlers. Log the error, notify devops and of course display a friendly message to the user.
+
+As you explore [our example](lib/middleware.js#L22) there's a few things to pay attention to:
+
+* This handler accepts [strings](lib/middleware.js#L24) and [plain objects](lib/middleware.js#L41) so that you can throw or call `next()` with a string or plain object with a message, status and/or code. Be aware that this won't get you a stack trace. We'll get back to a better solution for that.
+* The handler again [checks `res.bodyFlushed`](lib/middleware.js#L44). It will always log the error, but once a response has been sent we cannot communicate with the client anymore.
+* The handler [checks `req.xhr`](lib/middleware.js#L52) and returns JSON in case the client used `XMLHttpRequest`, e.g. via jQuery.
+* When the [request does not accept HTML](lib/middleware.js#L61) we pass the error on to the builtin error handler. The client is probably calling an Arrow Builder API.
+* If we're in a development environment, the handler will [collect additional details](lib/middleware.js#L66) to help the developer debug the error.
+* Finally, we pass everything we know [on to the renderer](lib/middleware.js#L72). Notice this works slightly different from how you'd normally work in Arrow or Express routes because of how Arrow buffers the response as we discussed before. We don't call `res.render()` but `req.server.app.render()` and then send the rendered template to the client. Make sure you handle the edge case where the template itself might produce an error.
+
+## Testing our Custom Error Pages
+
+To test a 404, simply go to `/undefined` or any other URL that does not exist:
+
+![Custom 404](docs/custom-404-dev.png)
+
+To test throwing or calling `next()` with errors, I've wired up the [/example](web/routes/example.js) route with 2 parameters you can set via the query string:
+
+* `action` can be `throw`, `next` and will default to `render`. The values pretty much speak for themselves.
+* `type` is what would be thrown or passed on to `next()`. This can be `Error`, `Object` or (the default) `String`, but also `HttpError`.
+
+For example if we call `/example?action=throw&type=Error` you will get:
+
+![Custom Error Dev](docs/custom-error-dev.png)
+
+As you can see in the [error template](web/views/error.ejs) the stack trace, request and environment information will not be visible in production:
+
+![Custom Error](docs/custom-404.png)
+
+## Using Custom Error Types
+
+I'm a lazy developer so instead of:
+
+```js
+var e = new Error('Unauthorized');
+e.status = 401;
+return next(e);
 ```
 
-If everything goes well, you should see output similar to the following:
+I rather do:
 
-```bash
-$ appc run
-Appcelerator Command-Line Interface, version 0.1.48
-Copyright (c) 2014-2015, Appcelerator, Inc.  All Rights Reserved.
-
-Installing dependencies... server
-[INFO]  Installing dependencies...
-[INFO]  Dependencies installed.
-[INFO]  APIKey is: G2UVPfGY+9AyWhih0AUgKFD9CSdRIm4W
-[INFO]  Test your APIs at http://0.0.0.0:8080/arrow. This will only be available on your dev environment
-[INFO]  server started on port 8080
-[INFO]  API documentation generated at http://0.0.0.0:8080/arrow/doc
+```js
+return next({status:401, message: 'Unauthorized'});
 ```
 
-> NOTE: You may need to login to the Appcelerator platform using your Appcelerator credentials the first time you run or if you have not logged in before.
+But as we discussed this won't get us a Stack Trace. The proper way to deal with this are [Custom Error Types](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error#Custom_Error_Types) that  extend [Error](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error).
 
-After starting the server, you should be able to browse to the main API documentation page by navigating to http://127.0.0.1:8080/arrow/doc.
+This is what the [/example](web/routes/example.js#L28) uses when you call it with `type=HttpError`. You can find this custom error type in [lib/HttpError.js](lib/HttpError.js). As you can see I follow [Mozilla's guide](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error#Custom_Error_Types) and override the constructor to accept an [Http Status Code](https://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html) as well as an optional error code.
 
-If the page renders with the test API, you're ready to get started building your APIs!
+There's two things I do different from Mozilla. Like their guide we [generate the stack trace](lib/HttpError.js#L10) by creating a `new Error()` within the constructor. But by passing the message to it we make sure that gets includes in the first line of the stack as well. Because we generate the stack within the constructor the first line (last step) of the trace will always lead to the constructor. I find this confusing so I use a simple [RegExp](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Regexp) to remove that line.
 
-## Project Structure
+Let's build some fancy Arrow apps with just-as-fancy error pages!
 
-The project has the following main folders:
-
-- _conf_ - your configuration files will go here
-- _apis_ - your APIs will go here
-- _models_ - your models will go here
-- _specs_ - your tests will go here
-- _docs_ - your API docs will go here
-- _logs_ - your server logs will be generated to this directory by default
-
-In your root project folder, you will have the main server file `app.js`.  This file generally should not need to be edited but you can edit it if you want to further customize your server.
-
-## Configuration
-
-The main configuration file is located in `conf/default.js`.  This file is the base configuration file.  You can have environment specific configuration by including a file with the name of the environment in the `conf` directory such as `local.js` or `production.js`.  Values configured in this file will be merged into the `default.js` file.  This allows you to create a base set of configuration values and then override them depending on your environment. By default, the `local.js` file will be ignored by git during checkin.  If you want to change this behavior to allow you to check in this file, change the entry in `conf/.gitignore`.
-
-### Base Configuration
-
-The following are configuration settings used by API Builder that can be customized:
-
-| Name        | Description                                                         | Default value       |
-|-------------|---------------------------------------------------------------------|---------------------|
-| logs        | the folder to place your logs.  if missing, will not log to disk.   | ./logs              |
-| quiet       | if true, will suppress logging to console                           | false               |
-| logLevel    | log level of main logger                                            | debug               |
-| apikey      | API key for accessing the server                                    | n/a                 |
-| admin       | hash for controlling admin access                                   | n/a                 |
-| session     | hash for controlling session                                        | n/a                 |
-
-The `admin` setting has the following properties:
-
-| Name        | Description                                                         | Default value       |
-|-------------|---------------------------------------------------------------------|---------------------|
-| enabled     | if true, will enable the admin functionality                        | true                |
-| prefix      | the URI path prefix                                                 | /arrow              |
-
-The `session` setting has the following properties:
-
-| Name                | Description                                               | Default value       |
-|---------------------|-----------------------------------------------------------|---------------------|
-| encryptionAlgorithm | the encryption algorithm to use                           | aes256              |
-| encryptionKey       | the encryption key (should be unique and private)         | n/a                 |
-| signatureAlgorithm  | the signature algorithm to use                            | sha512-drop256      |
-| signatureKey        | the signature key (should be unique and private)          | n/a                 |
-| secret              | should be a large unguessable string                      | n/a                 |
-| duration            | how long the session will stay valid in ms                | 86400000            |
-| activeDuration      | if expiresIn < activeDuration, the session will be extended by activeDuration ms | 300000 |
-
-## APIs
-
-APIs must be placed in the `apis` folder.  You can create subfolders under the `apis` folder to organize your APIs.
-
-An API is defined using the following example:
-
-```javascript
-var Arrow = require('arrow');
-
-var TestAPI = Arrow.API.extend({
-    group: 'test',
-    path: '/test/:id',
-    method: 'GET',
-    description: 'this is an api that show how you can implement an API',
-    model: 'user',
-    parameters: {
-        id: {description:'the user id'}
-    },
-    action: function (req, resp) {
-        // invoke the model find method passing the id parameter
-        // stream the result back as response
-        resp.stream(req.model.find, req.params.id);
-    }
-});
-
-module.exports = TestAPI;
-```
-
-An API has the following properties:
-
-| Name        | Description                                                         | Default value       |
-|-------------|---------------------------------------------------------------------|---------------------|
-| name        | name of the API. use the same name to group API endpoints together  | n/a                 |
-| path        | the path route to the API                                           | n/a                 |
-| method      | the HTTP verb for accessing the API                                 | GET                 |
-| description | the description used in documentation to explain this API           | n/a                 |
-| model       | optional name of the Model that this API returns                    | n/a                 |
-| parameters  | optional hash of incoming properties (path or query) used by this API | n/a               |
-| action      | function that will be called to implement the API                   | n/a                 |
-
-The API will automatically be loaded and created when you start the server.
-
-## Documentation
-
-APIs which are grouped together have each API endpoint documented at the API definition.  You can provide extended overview documentation for all APIs which share the same name by creating a file with the name of the API in the `docs` folder, such as `test.md`.  The contents of this file must be authored [Markdown](http://daringfireball.net/projects/markdown/syntax) (powered by some special extensions).  You can view an example of how to author by viewing the generated file named `test.md` in the `docs` folder.  The contents of the file will be included as part of the definition of the API.
-
-## Models
-
-Models must be placed in the `models` folder.  You can create subfolders under the `models` folder to organize your Models.
-
-A Model is defined using the following example:
-
-```javascript
-var Arrow = require('arrow');
-
-var User = Arrow.Model.extend('user',{
-    fields: {
-        first_name: { type: String },
-        last_name: { type: String },
-        email: { type: String }
-    },
-    connector: 'memory'
-});
-
-module.exports = User;
-```
-
-Models are automatically loaded by the server and automatically bound to a route with the appropriate CRUD methods.
-
-You can automatically get a model programatically:
-
-```javascript
-var user = Arrow.getModel('user');
-```
-
-The result will always be the Model definition, not an instance.
-
+Code Strong! 🚀

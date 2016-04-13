@@ -18,7 +18,7 @@
           <p>Try the <a href="/">homepage</a>.</p>
         <% } %>
 
-        <% if (env !== 'development') { %>
+        <% if (env === 'development') { %>
           <% if (error.stack) { %>
             <h2>Stack</h2>
             <pre><%= error.stack %></pre>

@@ -12,7 +12,7 @@ server.on('started', function() {
   server.logger.debug('server started!');
 
   server.app.use(middleware.pageNotFound);
-  server.app.use(middleware.internalServerError);
+  server.app.use(middleware.errorHandler);
 });
 
 // start the server
