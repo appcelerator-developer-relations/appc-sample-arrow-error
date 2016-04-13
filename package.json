@@ -1,6 +1,6 @@
 {
-    "name": "appc-sample-error",
-    "description": "Demonstrates custom error pages for Arrow",
+    "name": "appc-sample-arrow-error",
+    "description": "Custom Error Pages for Arrow Web",
     "version": "1.0.0",
     "author": "Fokke Zandbergen",
     "license": "MIT",
@@ -10,7 +10,7 @@
         "arrow"
     ],
     "repository": {
-      
+
     },
     "private": true,
     "dependencies": {
