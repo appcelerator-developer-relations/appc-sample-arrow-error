@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta content="IE=edge,chrome=1" http-equiv="X-UA-Compatible">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Oops!</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+</head>
+
+<body>
+    <div class="container">
+        <h1>Oops!</h1>
+        <p class="lead"><%= error.message %></p>
+
+        <% if (error.status === 404) { %>
+          <p>Try the <a href="/">homepage</a>.</p>
+        <% } %>
+
+        <% if (env !== 'development') { %>
+          <% if (error.stack) { %>
+            <h2>Stack</h2>
+            <pre><%= error.stack %></pre>
+          <% } %>
+          <% if (error.req) { %>
+            <h2>Request</h2>
+            <pre><%= error.req %></pre>
+          <% } %>
+          <% if (error.env) { %>
+            <h2>Environment</h2>
+            <pre><%= error.env %></pre>
+          <% } %>
+        <% } %>
+
+    </div>
+</body>
+
+</html>
